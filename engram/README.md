@@ -38,6 +38,10 @@ Memories flow upward: Working → Episodic → Semantic based on access patterns
 | GET | /v1/memories/{id} | Get a single memory by ID |
 | POST | /v1/memories/search | Vector similarity search |
 | DELETE | /v1/memories/{id} | Delete a memory |
+| GET | /v1/tools | OpenAI-compatible tool definitions |
+| POST | /v1/keys | Create an API key |
+| GET | /v1/keys | List API keys |
+| DELETE | /v1/keys/{key} | Revoke an API key |
 
 ### Create Memory
 
@@ -65,6 +69,82 @@ curl -X POST http://127.0.0.1:8000/v1/memories/search \
   }'
 ```
 
+## Agent Integration
+
+ENGRAM is designed to pair with AI agent platforms. Here's how to connect your agent:
+
+### OpenAI Function Calling
+
+1. **Fetch tool definitions** from `GET /v1/tools`
+2. **Pass them to your agent** as the `tools` parameter
+3. **Handle function calls** by calling the corresponding ENGRAM endpoints
+
+```python
+import openai
+import requests
+
+# 1. Get tool definitions
+tools = requests.get("http://127.0.0.1:8000/v1/tools").json()["tools"]
+
+# 2. Call OpenAI with tools
+response = openai.chat.completions.create(
+    model="gpt-4o",
+    messages=[{"role": "user", "content": "Remember that I like Python"}],
+    tools=tools,
+)
+
+# 3. Handle tool calls
+for tool_call in response.choices[0].message.tool_calls:
+    if tool_call.function.name == "engram_create_memory":
+        args = json.loads(tool_call.function.arguments)
+        result = requests.post(
+            "http://127.0.0.1:8000/v1/memories",
+            json=args,
+            headers={"Authorization": f"Bearer {API_KEY}"}
+        )
+```
+
+### Direct HTTP API
+
+Any agent that can make HTTP requests can use ENGRAM directly:
+
+```python
+# Store a memory
+requests.post("http://127.0.0.1:8000/v1/memories", json={
+    "content": "User's name is Alice",
+    "user_id": "alice",
+    "layer": "semantic",
+    "salience": 0.9
+})
+
+# Search memories before responding
+results = requests.post("http://127.0.0.1:8000/v1/memories/search", json={
+    "query": "user name",
+    "user_id": "alice",
+    "layer": "semantic"
+})
+```
+
+### Authentication (Optional)
+
+By default, ENGRAM runs without authentication. To enable multi-tenant mode:
+
+```bash
+# Enable auth
+ENGRAM_AUTH_ENABLED=true
+
+# Generate your first API key (one-time setup)
+curl -X POST http://127.0.0.1:8000/v1/keys \
+  -H "Content-Type: application/json" \
+  -d '{"agent_id": "my-agent", "label": "primary key"}'
+
+# Use the key in requests
+curl -X POST http://127.0.0.1:8000/v1/memories \
+  -H "Authorization: Bearer engram_abc123..." \
+  -H "Content-Type: application/json" \
+  -d '{"content": "...", "user_id": "user_1"}'
+```
+
 ## Decay Engine
 
 Memories naturally fade over time. Each memory has a decay score that decreases based on how long it's been since last access and how often it's been used. Frequently accessed memories stay strong; forgotten ones fade and are eventually pruned. This mimics how biological memory works — use it or lose it.
@@ -85,6 +165,8 @@ All settings are read from environment variables (or `.env` file) with the `ENGR
 | `ENGRAM_PORT` | `8000` | Server port |
 | `ENGRAM_HIVE_ENABLED` | `false` | Enable shared cross-agent memory |
 | `ENGRAM_HIVE_ORG_ID` | | Organization ID for hive memory |
+| `ENGRAM_AUTH_ENABLED` | `false` | Enable API key authentication |
+| `ENGRAM_DEFAULT_API_KEY` | | Pre-seeded API key for first setup |
 
 ## Running Tests
 

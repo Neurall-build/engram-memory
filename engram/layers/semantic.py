@@ -144,7 +144,7 @@ def search(conn, query: str, user_id: str, top_k: int = 10, min_score: float = 0
     query_embedding = embed(query)
     embedding_blob = json.dumps(query_embedding)
 
-    # sqlite-vec KNN syntax
+    # sqlite-vec KNN syntax with k parameter
     rows = conn.execute(
         """
         SELECT sm.*, sv.distance
@@ -152,8 +152,8 @@ def search(conn, query: str, user_id: str, top_k: int = 10, min_score: float = 0
         JOIN semantic_memory sm ON sv.memory_id = sm.id
         WHERE sm.user_id = ?
         AND sv.embedding MATCH ?
+        AND k = ?
         ORDER BY sv.distance
-        LIMIT ?
         """,
         (user_id, embedding_blob, top_k),
     ).fetchall()

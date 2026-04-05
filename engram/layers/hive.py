@@ -172,8 +172,8 @@ def search(conn, query: str, org_id: str, top_k: int = 10, min_score: float = 0.
         JOIN hive_memory hm ON hv.memory_id = hm.id
         WHERE hm.org_id = ?
         AND hv.embedding MATCH ?
+        AND k = ?
         ORDER BY hv.distance
-        LIMIT ?
         """,
         (org_id, embedding_blob, top_k),
     ).fetchall()

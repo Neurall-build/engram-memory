@@ -3,12 +3,11 @@
 # Licensed under the Business Source License 1.1
 # See LICENSE file in the root of this repository.
 
-fastapi>=0.104.0
-uvicorn>=0.24.0
-pydantic>=2.0
-pydantic-settings>=2.0
-sqlite-vec>=0.1.2
-httpx>=0.25.0
-pytest>=7.0
-requests>=2.31.0
-mcp>=1.0.0
+"""ENGRAM MCP Server.
+
+Model Context Protocol server for connecting AI applications to ENGRAM memory.
+"""
+
+from .server import main
+
+__all__ = ["main"]

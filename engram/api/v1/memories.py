@@ -23,22 +23,38 @@ from models.memory import (
     MemorySearchResponse,
     MemoryLayer,
 )
+from api.v1.auth import get_current_user, require_permission, AuthenticatedUser
 
 router = APIRouter(tags=["memories"])
 
 
 def _get_db():
-    """Dependency that yields a database connection."""
+    """Dependency that yields a database connection.
+
+    Note: Connections are not closed here because they may be
+    singleton (for in-memory DBs). Cleanup is handled elsewhere.
+    """
     conn = get_connection()
-    try:
-        yield conn
-    finally:
-        conn.close()
+    yield conn
 
 
 @router.post("/memories", status_code=201, response_model=MemoryResponse)
-async def create_memory(req: MemoryCreateRequest, conn=Depends(_get_db)):
-    """Create or upsert a memory. Routes to the correct layer based on req.layer."""
+async def create_memory(
+    req: MemoryCreateRequest,
+    conn=Depends(_get_db),
+    user: AuthenticatedUser = Depends(require_permission("write")),
+):
+    """Create or upsert a memory. Routes to the correct layer based on req.layer.
+
+    The user_id is automatically set from the authenticated user context
+    if not explicitly provided in the request body.
+    """
+    # Only override user_id if not explicitly set in the request
+    if not req.user_id:
+        req.user_id = user.user_id
+    if not req.agent_id:
+        req.agent_id = user.agent_id
+
     try:
         if req.layer == MemoryLayer.WORKING:
             return working_create(conn, req)
@@ -58,19 +74,26 @@ async def create_memory(req: MemoryCreateRequest, conn=Depends(_get_db)):
 
 @router.get("/memories", response_model=MemoryListResponse)
 async def list_memories(
-    user_id: str = Query(..., description="User ID to filter memories"),
+    user_id: Optional[str] = Query(None, description="User ID to filter memories. If not provided, uses authenticated user."),
     layer: MemoryLayer = Query(default=MemoryLayer.EPISODIC, description="Memory layer to list"),
     limit: int = Query(default=50, ge=1, le=200),
     conn=Depends(_get_db),
+    user: AuthenticatedUser = Depends(get_current_user),
 ):
-    """List memories, filterable by user_id and layer."""
+    """List memories, filterable by user_id and layer.
+
+    The user_id is automatically set from the authenticated user context
+    if not explicitly provided as a query parameter.
+    """
+    # Use explicit user_id if provided, otherwise use authenticated user
+    effective_user_id = user_id if user_id else user.user_id
     try:
         if layer == MemoryLayer.WORKING:
-            items = working_list(conn, user_id)
+            items = working_list(conn, effective_user_id)
         elif layer == MemoryLayer.EPISODIC:
-            items = episodic_list(conn, user_id)
+            items = episodic_list(conn, effective_user_id)
         elif layer == MemoryLayer.SEMANTIC:
-            items = semantic_list(conn, user_id)
+            items = semantic_list(conn, effective_user_id)
         elif layer == MemoryLayer.HIVE:
             # Hive is org-scoped, not user-scoped
             from config import settings
@@ -95,23 +118,37 @@ async def get_memory(memory_id: str, conn=Depends(_get_db)):
     """Get a single memory by ID. Tries all layers in order."""
     # Try each layer
     for getter in [working_get, episodic_get, semantic_get, hive_get]:
-        result = getter(conn, memory_id)
-        if result is not None:
-            return result
+        try:
+            result = getter(conn, memory_id)
+            if result is not None:
+                return result
+        except Exception:
+            # If this layer errors, try the next one
+            continue
 
     raise HTTPException(status_code=404, detail=f"Memory {memory_id} not found")
 
 
 @router.post("/memories/search", response_model=MemorySearchResponse)
-async def search_memories(req: MemorySearchRequest, conn=Depends(_get_db)):
-    """Vector similarity search. Only works for semantic and hive layers."""
+async def search_memories(
+    req: MemorySearchRequest,
+    conn=Depends(_get_db),
+    user: AuthenticatedUser = Depends(get_current_user),
+):
+    """Vector similarity search. Only works for semantic and hive layers.
+
+    The user_id is automatically set from the authenticated user context
+    if not explicitly provided in the request body.
+    """
+    # Only override user_id if not explicitly set in the request
+    if not req.user_id:
+        req.user_id = user.user_id
+
     if req.layer not in (MemoryLayer.SEMANTIC, MemoryLayer.HIVE):
         raise HTTPException(status_code=400, detail=f"Search only supported for semantic and hive layers, not {req.layer}")
 
     try:
         if req.layer == MemoryLayer.SEMANTIC:
-            if not req.user_id:
-                raise HTTPException(status_code=400, detail="user_id is required for semantic search")
             return semantic_search(conn, req.query, req.user_id, req.top_k, req.min_score)
         elif req.layer == MemoryLayer.HIVE:
             org_id = req.org_id
@@ -130,10 +167,18 @@ async def search_memories(req: MemorySearchRequest, conn=Depends(_get_db)):
 
 
 @router.delete("/memories/{memory_id}", status_code=204)
-async def delete_memory(memory_id: str, conn=Depends(_get_db)):
+async def delete_memory(
+    memory_id: str,
+    conn=Depends(_get_db),
+    user: AuthenticatedUser = Depends(require_permission("write")),
+):
     """Delete a memory. Tries all layers in order."""
     for deleter in [working_delete, episodic_delete, semantic_delete, hive_delete]:
-        if deleter(conn, memory_id):
-            return Response(status_code=204)
+        try:
+            if deleter(conn, memory_id):
+                return Response(status_code=204)
+        except Exception:
+            # If this layer errors, try the next one
+            continue
 
     raise HTTPException(status_code=404, detail=f"Memory {memory_id} not found")

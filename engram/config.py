@@ -27,6 +27,15 @@ class Settings(BaseSettings):
     port: int = Field(default=8000, alias="ENGRAM_PORT")
     hive_enabled: bool = Field(default=False, alias="ENGRAM_HIVE_ENABLED")
     hive_org_id: str = Field(default="", alias="ENGRAM_HIVE_ORG_ID")
+    auth_enabled: bool = Field(default=False, alias="ENGRAM_AUTH_ENABLED")
+    default_api_key: str = Field(default="", alias="ENGRAM_DEFAULT_API_KEY")
+
+
+def reload_settings() -> Settings:
+    """Reload settings from environment variables (useful for tests)."""
+    global settings
+    settings = Settings()
+    return settings
 
 
 settings = Settings()

@@ -28,7 +28,7 @@ class MemoryVisibility(str, Enum):
 class MemoryCreateRequest(BaseModel):
     """Request body for creating a memory."""
     content: str
-    user_id: str
+    user_id: Optional[str] = None
     agent_id: Optional[str] = None
     layer: MemoryLayer = MemoryLayer.EPISODIC
     metadata: dict[str, Any] = Field(default_factory=dict)

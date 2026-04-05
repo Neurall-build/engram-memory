@@ -29,7 +29,7 @@ os.environ["ENGRAM_HIVE_ORG_ID"] = ""
 
 from main import app
 from database.schema import init_db
-from database.connection import get_connection
+from database.connection import get_connection, reset_connection
 
 client = TestClient(app)
 
@@ -37,18 +37,11 @@ client = TestClient(app)
 @pytest.fixture(autouse=True)
 def setup_db():
     """Initialize a fresh in-memory DB for each test."""
+    reset_connection()
     init_db()
     yield
-    # Cleanup: close any lingering connections
-    conn = get_connection()
-    try:
-        conn.execute("DELETE FROM working_memory")
-        conn.execute("DELETE FROM episodic_memory")
-        conn.execute("DELETE FROM semantic_memory")
-        conn.execute("DELETE FROM hive_memory")
-        conn.commit()
-    finally:
-        conn.close()
+    # Cleanup: reset the singleton connection for the next test
+    reset_connection()
 
 
 def test_create_episodic_memory():

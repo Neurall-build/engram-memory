@@ -5,7 +5,7 @@
 
 """Database schema definitions and initialization for ENGRAM."""
 
-from database.connection import get_connection
+from database.connection import get_connection, execute_write
 from config import settings
 
 
@@ -102,10 +102,52 @@ def _create_hive_memory(conn):
     """)
 
 
+def _create_api_keys(conn):
+    """Create the api_keys table for authentication."""
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS api_keys (
+            key TEXT PRIMARY KEY,
+            agent_id TEXT NOT NULL,
+            user_id TEXT NOT NULL,
+            label TEXT DEFAULT '',
+            created_at REAL NOT NULL,
+            expires_at REAL,
+            permissions TEXT DEFAULT 'read,write'
+        )
+    """)
+
+
+def _seed_default_api_key(conn):
+    """Seed the default API key if auth is enabled and a default key is configured."""
+    if settings.auth_enabled and settings.default_api_key:
+        # Check if the key already exists
+        existing = conn.execute(
+            "SELECT key FROM api_keys WHERE key = ?", (settings.default_api_key,)
+        ).fetchone()
+        if existing is None:
+            import time
+            execute_write(
+                conn,
+                """
+                INSERT INTO api_keys (key, agent_id, user_id, label, created_at, permissions)
+                VALUES (?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    settings.default_api_key,
+                    "bootstrap",
+                    "admin",
+                    "Default bootstrap key",
+                    time.time(),
+                    "read,write",
+                ),
+            )
+
+
 def init_db():
     """Initialize the database schema.
 
     Creates all tables and virtual tables if they do not exist.
+    If auth is enabled and a default API key is configured, seeds it.
     """
     conn = get_connection()
     try:
@@ -113,6 +155,10 @@ def init_db():
         _create_episodic_memory(conn)
         _create_semantic_memory(conn)
         _create_hive_memory(conn)
+        _create_api_keys(conn)
+        _seed_default_api_key(conn)
         conn.commit()
     finally:
-        conn.close()
+        # Don't close singleton connections (in-memory DB)
+        if settings.db_path != ":memory:":
+            conn.close()
