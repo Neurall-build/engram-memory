@@ -12,11 +12,13 @@ pip install -r requirements.txt
 cp .env.example .env
 
 # Run the server
-uvicorn main:app --reload
+uvicorn main:app --reload --host 127.0.0.1 --port 8000
 
-# Open API docs
+# Open API docs (in your browser, while server is running)
 # http://127.0.0.1:8000/docs
 ```
+
+**Note:** The server must be running before you can open `http://127.0.0.1:8000/docs`
 
 ## 4-Layer Memory Architecture
 
