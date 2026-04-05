@@ -1,0 +1,46 @@
+# ENGRAM Skill for OpenClaw
+name: engram
+version: 0.1.0
+description: Persistent memory for OpenClaw agents via ENGRAM
+author: Neurall
+
+# Skill configuration
+config:
+  server_url: http://127.0.0.1:8000
+  api_key: ""
+  user_id: "default"
+  default_layer: "episodic"
+
+# Commands exposed to the agent
+commands:
+  - name: remember
+    description: "Store a memory for later recall"
+    usage: "@engram remember <content> [--layer working|episodic|semantic] [--salience 0.0-1.0]"
+    
+  - name: recall
+    description: "Search stored memories"
+    usage: "@engram recall <query> [--layer episodic|semantic] [--top_k N]"
+    
+  - name: list
+    description: "List recent memories"
+    usage: "@engram list [--layer working|episodic|semantic] [--limit N]"
+    
+  - name: forget
+    description: "Delete a memory by ID"
+    usage: "@engram forget <memory_id>"
+
+# System prompt injected into agent context
+system_prompt: |
+  You have access to a persistent memory system called ENGRAM.
+  
+  MEMORY GUIDELINES:
+  - Store important user preferences, facts, and experiences as memories
+  - Search memories before responding to provide personalized answers
+  - Use semantic layer for facts, episodic for events
+  - Memories decay over time - important ones are accessed more often
+  
+  COMMANDS:
+  - @engram remember <content> — Store a memory
+  - @engram recall <query> — Search memories  
+  - @engram list — List recent memories
+  - @engram forget <id> — Delete a memory
