@@ -176,8 +176,8 @@ pytest tests/ -v
 
 ## License
 
-Business Source License 1.1 (BSL 1.1)
+MIT License - Non-Commercial Use
 
 Copyright (c) 2026 Neurall. All rights reserved.
 
-See the LICENSE file for full terms.
+Free for personal/individual use. Commercial use requires a license. Contact: neurall.company@gmail.com
