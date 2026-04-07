@@ -31,6 +31,9 @@ def _row_to_response(row: dict) -> MemoryResponse:
         access_count=row.get("access_count", 0),
         created_at=row["created_at"],
         last_accessed=row.get("last_accessed"),
+        profile=row.get("profile"),
+        emotion=row.get("emotion"),
+        emotion_intensity=row.get("emotion_intensity"),
     )
 
 
@@ -47,9 +50,9 @@ def create(conn, req: MemoryCreateRequest) -> MemoryResponse:
     conn.execute(
         """
         INSERT INTO episodic_memory
-            (id, user_id, agent_id, content, metadata, salience, created_at,
-             decay_score, access_count, last_accessed, promoted)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0)
+            (id, user_id, agent_id, content, metadata, salience, created_at, expires_at,
+             decay_score, access_count, last_accessed, promoted, is_compressed, profile, emotion, emotion_intensity)
+        VALUES (?, ?, ?, ?, ?, ?, ?, NULL, ?, ?, ?, 0, 0, ?, ?, ?)
         """,
         (
             mem_id,
@@ -62,17 +65,24 @@ def create(conn, req: MemoryCreateRequest) -> MemoryResponse:
             decay_score,
             access_count,
             last_accessed,
+            req.profile,
+            req.emotion.value if req.emotion else None,
+            req.emotion_intensity,
         ),
     )
     conn.commit()
 
-    row = conn.execute("SELECT * FROM episodic_memory WHERE id = ?", (mem_id,)).fetchone()
+    row = conn.execute(
+        "SELECT * FROM episodic_memory WHERE id = ?", (mem_id,)
+    ).fetchone()
     return _row_to_response(dict(row))
 
 
 def get(conn, mem_id: str) -> MemoryResponse | None:
     """Get an episodic memory by ID. Recalculates decay score on every access."""
-    row = conn.execute("SELECT * FROM episodic_memory WHERE id = ?", (mem_id,)).fetchone()
+    row = conn.execute(
+        "SELECT * FROM episodic_memory WHERE id = ?", (mem_id,)
+    ).fetchone()
     if row is None:
         return None
 
@@ -103,12 +113,18 @@ def get(conn, mem_id: str) -> MemoryResponse | None:
     return _row_to_response(row_dict)
 
 
-def list_by_user(conn, user_id: str) -> list[MemoryResponse]:
-    """List all episodic memories for a user."""
-    rows = conn.execute(
-        "SELECT * FROM episodic_memory WHERE user_id = ? ORDER BY created_at DESC",
-        (user_id,),
-    ).fetchall()
+def list_by_user(conn, user_id: str, profile: str = None) -> list[MemoryResponse]:
+    """List episodic memories for a user, optionally filtered by profile."""
+    if profile:
+        rows = conn.execute(
+            "SELECT * FROM episodic_memory WHERE user_id = ? AND profile = ? ORDER BY created_at DESC",
+            (user_id, profile),
+        ).fetchall()
+    else:
+        rows = conn.execute(
+            "SELECT * FROM episodic_memory WHERE user_id = ? ORDER BY created_at DESC",
+            (user_id,),
+        ).fetchall()
     return [_row_to_response(dict(r)) for r in rows]
 
 
@@ -124,7 +140,9 @@ def promote_to_semantic(conn, mem_id: str) -> str:
 
     Copies the row to semantic_memory, sets promoted=1, returns new semantic id.
     """
-    row = conn.execute("SELECT * FROM episodic_memory WHERE id = ?", (mem_id,)).fetchone()
+    row = conn.execute(
+        "SELECT * FROM episodic_memory WHERE id = ?", (mem_id,)
+    ).fetchone()
     if row is None:
         raise ValueError(f"Episodic memory {mem_id} not found")
 
@@ -135,8 +153,8 @@ def promote_to_semantic(conn, mem_id: str) -> str:
         """
         INSERT INTO semantic_memory
             (id, user_id, agent_id, content, metadata, salience, created_at,
-             decay_score, access_count, last_accessed, source_episode)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+             decay_score, access_count, last_accessed, source_episode, profile, emotion, emotion_intensity)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         """,
         (
             semantic_id,
@@ -150,6 +168,9 @@ def promote_to_semantic(conn, mem_id: str) -> str:
             row_dict.get("access_count", 0),
             row_dict.get("last_accessed"),
             mem_id,
+            row_dict.get("profile"),
+            row_dict.get("emotion"),
+            row_dict.get("emotion_intensity"),
         ),
     )
 

@@ -30,6 +30,9 @@ def _row_to_response(row: dict) -> MemoryResponse:
         access_count=None,
         created_at=row["created_at"],
         last_accessed=None,
+        profile=row.get("profile"),
+        emotion=row.get("emotion"),
+        emotion_intensity=row.get("emotion_intensity"),
     )
 
 
@@ -42,8 +45,8 @@ def create(conn, req: MemoryCreateRequest) -> MemoryResponse:
     conn.execute(
         """
         INSERT INTO working_memory
-            (id, user_id, agent_id, content, metadata, salience, created_at, expires_at)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+            (id, user_id, agent_id, content, metadata, salience, created_at, expires_at, profile, emotion, emotion_intensity)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         """,
         (
             mem_id,
@@ -54,28 +57,41 @@ def create(conn, req: MemoryCreateRequest) -> MemoryResponse:
             req.salience,
             now,
             expires_at,
+            req.profile,
+            req.emotion.value if req.emotion else None,
+            req.emotion_intensity,
         ),
     )
     conn.commit()
 
-    row = conn.execute("SELECT * FROM working_memory WHERE id = ?", (mem_id,)).fetchone()
+    row = conn.execute(
+        "SELECT * FROM working_memory WHERE id = ?", (mem_id,)
+    ).fetchone()
     return _row_to_response(dict(row))
 
 
 def get(conn, mem_id: str) -> MemoryResponse | None:
     """Get a working memory by ID."""
-    row = conn.execute("SELECT * FROM working_memory WHERE id = ?", (mem_id,)).fetchone()
+    row = conn.execute(
+        "SELECT * FROM working_memory WHERE id = ?", (mem_id,)
+    ).fetchone()
     if row is None:
         return None
     return _row_to_response(dict(row))
 
 
-def list_by_user(conn, user_id: str) -> list[MemoryResponse]:
-    """List all working memories for a user."""
-    rows = conn.execute(
-        "SELECT * FROM working_memory WHERE user_id = ? ORDER BY created_at DESC",
-        (user_id,),
-    ).fetchall()
+def list_by_user(conn, user_id: str, profile: str = None) -> list[MemoryResponse]:
+    """List working memories for a user, optionally filtered by profile."""
+    if profile:
+        rows = conn.execute(
+            "SELECT * FROM working_memory WHERE user_id = ? AND profile = ? ORDER BY created_at DESC",
+            (user_id, profile),
+        ).fetchall()
+    else:
+        rows = conn.execute(
+            "SELECT * FROM working_memory WHERE user_id = ? ORDER BY created_at DESC",
+            (user_id,),
+        ).fetchall()
     return [_row_to_response(dict(r)) for r in rows]
 
 

@@ -11,10 +11,32 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 from fastapi.responses import Response
 
 from database.connection import get_connection
-from layers.working import create as working_create, get as working_get, list_by_user as working_list, delete as working_delete
-from layers.episodic import create as episodic_create, get as episodic_get, list_by_user as episodic_list, delete as episodic_delete
-from layers.semantic import create as semantic_create, get as semantic_get, list_by_user as semantic_list, delete as semantic_delete, search as semantic_search
-from layers.hive import create as hive_create, get as hive_get, list_by_org as hive_list, delete as hive_delete, search as hive_search
+from layers.working import (
+    create as working_create,
+    get as working_get,
+    list_by_user as working_list,
+    delete as working_delete,
+)
+from layers.episodic import (
+    create as episodic_create,
+    get as episodic_get,
+    list_by_user as episodic_list,
+    delete as episodic_delete,
+)
+from layers.semantic import (
+    create as semantic_create,
+    get as semantic_get,
+    list_by_user as semantic_list,
+    delete as semantic_delete,
+    search as semantic_search,
+)
+from layers.hive import (
+    create as hive_create,
+    get as hive_get,
+    list_by_org as hive_list,
+    delete as hive_delete,
+    search as hive_search,
+)
 from models.memory import (
     MemoryCreateRequest,
     MemoryResponse,
@@ -24,6 +46,8 @@ from models.memory import (
     MemoryLayer,
 )
 from api.v1.auth import get_current_user, require_permission, AuthenticatedUser
+from engine.compression import get_compression_engine
+from engine.importance import get_importance_scorer
 
 router = APIRouter(tags=["memories"])
 
@@ -55,6 +79,11 @@ async def create_memory(
     if not req.agent_id:
         req.agent_id = user.agent_id
 
+    # Auto-score importance if not provided
+    if req.salience is None:
+        scorer = get_importance_scorer()
+        req.salience = scorer.score(req.content)
+
     try:
         if req.layer == MemoryLayer.WORKING:
             return working_create(conn, req)
@@ -74,13 +103,22 @@ async def create_memory(
 
 @router.get("/memories", response_model=MemoryListResponse)
 async def list_memories(
-    user_id: Optional[str] = Query(None, description="User ID to filter memories. If not provided, uses authenticated user."),
-    layer: MemoryLayer = Query(default=MemoryLayer.EPISODIC, description="Memory layer to list"),
+    user_id: Optional[str] = Query(
+        None,
+        description="User ID to filter memories. If not provided, uses authenticated user.",
+    ),
+    layer: MemoryLayer = Query(
+        default=MemoryLayer.EPISODIC, description="Memory layer to list"
+    ),
+    profile: Optional[str] = Query(
+        None,
+        description="Profile name for isolation (e.g., 'work', 'personal', 'project-x')",
+    ),
     limit: int = Query(default=50, ge=1, le=200),
     conn=Depends(_get_db),
     user: AuthenticatedUser = Depends(get_current_user),
 ):
-    """List memories, filterable by user_id and layer.
+    """List memories, filterable by user_id, layer, and profile.
 
     The user_id is automatically set from the authenticated user context
     if not explicitly provided as a query parameter.
@@ -89,17 +127,20 @@ async def list_memories(
     effective_user_id = user_id if user_id else user.user_id
     try:
         if layer == MemoryLayer.WORKING:
-            items = working_list(conn, effective_user_id)
+            items = working_list(conn, effective_user_id, profile)
         elif layer == MemoryLayer.EPISODIC:
-            items = episodic_list(conn, effective_user_id)
+            items = episodic_list(conn, effective_user_id, profile)
         elif layer == MemoryLayer.SEMANTIC:
-            items = semantic_list(conn, effective_user_id)
+            items = semantic_list(conn, effective_user_id, profile)
         elif layer == MemoryLayer.HIVE:
             # Hive is org-scoped, not user-scoped
             from config import settings
+
             org_id = settings.hive_org_id
             if not org_id:
-                raise HTTPException(status_code=400, detail="Hive org_id not configured")
+                raise HTTPException(
+                    status_code=400, detail="Hive org_id not configured"
+                )
             items = hive_list(conn, org_id)
         else:
             raise HTTPException(status_code=400, detail=f"Unknown layer: {layer}")
@@ -145,18 +186,26 @@ async def search_memories(
         req.user_id = user.user_id
 
     if req.layer not in (MemoryLayer.SEMANTIC, MemoryLayer.HIVE):
-        raise HTTPException(status_code=400, detail=f"Search only supported for semantic and hive layers, not {req.layer}")
+        raise HTTPException(
+            status_code=400,
+            detail=f"Search only supported for semantic and hive layers, not {req.layer}",
+        )
 
     try:
         if req.layer == MemoryLayer.SEMANTIC:
-            return semantic_search(conn, req.query, req.user_id, req.top_k, req.min_score)
+            return semantic_search(
+                conn, req.query, req.user_id, req.top_k, req.min_score
+            )
         elif req.layer == MemoryLayer.HIVE:
             org_id = req.org_id
             if not org_id:
                 from config import settings
+
                 org_id = settings.hive_org_id
             if not org_id:
-                raise HTTPException(status_code=400, detail="org_id is required for hive search")
+                raise HTTPException(
+                    status_code=400, detail="org_id is required for hive search"
+                )
             return hive_search(conn, req.query, org_id, req.top_k, req.min_score)
     except HTTPException:
         raise
@@ -182,3 +231,34 @@ async def delete_memory(
             continue
 
     raise HTTPException(status_code=404, detail=f"Memory {memory_id} not found")
+
+
+@router.post("/memories/compress")
+async def compress_memories(
+    user_id: str = Query(..., description="User ID to compress memories for"),
+    min_count: int = Query(10, description="Minimum episodes before compression"),
+    max_facts: int = Query(5, description="Maximum facts to generate"),
+    conn=Depends(_get_db),
+    user: AuthenticatedUser = Depends(require_permission("write")),
+):
+    """Compress episodic memories into semantic facts."""
+    try:
+        engine = get_compression_engine()
+        result = engine.compress_episodes(user_id, min_count, max_facts)
+        return result
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.get("/memories/compression-stats")
+async def get_compression_stats(
+    user_id: str = Query(..., description="User ID to get stats for"),
+    conn=Depends(_get_db),
+    user: AuthenticatedUser = Depends(require_permission("read")),
+):
+    """Get compression statistics for a user."""
+    try:
+        engine = get_compression_engine()
+        return engine.get_compression_stats(user_id)
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))

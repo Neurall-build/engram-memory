@@ -48,6 +48,8 @@ def _row_to_response(row: dict) -> MemoryResponse:
         last_accessed=row.get("last_accessed"),
         org_id=row.get("org_id"),
         visibility=row.get("visibility"),
+        emotion=row.get("emotion"),
+        emotion_intensity=row.get("emotion_intensity"),
     )
 
 
@@ -68,9 +70,9 @@ def create(conn, req: MemoryCreateRequest) -> MemoryResponse:
     conn.execute(
         """
         INSERT INTO hive_memory
-            (id, user_id, agent_id, org_id, content, metadata, salience, created_at,
-             decay_score, access_count, last_accessed, visibility)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            (id, user_id, agent_id, org_id, content, metadata, salience, created_at, expires_at,
+             decay_score, access_count, last_accessed, visibility, emotion, emotion_intensity)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         """,
         (
             mem_id,
@@ -81,10 +83,13 @@ def create(conn, req: MemoryCreateRequest) -> MemoryResponse:
             json.dumps(req.metadata),
             req.salience,
             now,
+            None,
             decay_score,
             access_count,
             last_accessed,
             visibility,
+            req.emotion.value if req.emotion else None,
+            req.emotion_intensity,
         ),
     )
 
@@ -158,7 +163,9 @@ def delete(conn, mem_id: str) -> bool:
     return cursor.rowcount > 0
 
 
-def search(conn, query: str, org_id: str, top_k: int = 10, min_score: float = 0.0) -> MemorySearchResponse:
+def search(
+    conn, query: str, org_id: str, top_k: int = 10, min_score: float = 0.0
+) -> MemorySearchResponse:
     """Vector similarity search for hive memories."""
     _check_hive_enabled()
 

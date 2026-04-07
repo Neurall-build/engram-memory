@@ -20,7 +20,10 @@ def _create_working_memory(conn):
             metadata TEXT DEFAULT '{}',
             salience REAL DEFAULT 0.5,
             created_at REAL NOT NULL,
-            expires_at REAL
+            expires_at REAL,
+            profile TEXT,
+            emotion TEXT,
+            emotion_intensity REAL
         )
     """)
 
@@ -40,7 +43,11 @@ def _create_episodic_memory(conn):
             decay_score REAL DEFAULT 1.0,
             access_count INTEGER DEFAULT 0,
             last_accessed REAL NOT NULL,
-            promoted INTEGER DEFAULT 0
+            promoted INTEGER DEFAULT 0,
+            is_compressed INTEGER DEFAULT 0,
+            profile TEXT,
+            emotion TEXT,
+            emotion_intensity REAL
         )
     """)
 
@@ -60,7 +67,10 @@ def _create_semantic_memory(conn):
             decay_score REAL DEFAULT 1.0,
             access_count INTEGER DEFAULT 0,
             last_accessed REAL NOT NULL,
-            source_episode TEXT
+            source_episode TEXT,
+            profile TEXT,
+            emotion TEXT,
+            emotion_intensity REAL
         )
     """)
 
@@ -89,7 +99,9 @@ def _create_hive_memory(conn):
             decay_score REAL DEFAULT 1.0,
             access_count INTEGER DEFAULT 0,
             last_accessed REAL NOT NULL,
-            visibility TEXT DEFAULT 'org'
+            visibility TEXT DEFAULT 'org',
+            emotion TEXT,
+            emotion_intensity REAL
         )
     """)
 
@@ -126,6 +138,7 @@ def _seed_default_api_key(conn):
         ).fetchone()
         if existing is None:
             import time
+
             execute_write(
                 conn,
                 """

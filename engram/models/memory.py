@@ -12,6 +12,7 @@ from pydantic import BaseModel, Field
 
 class MemoryLayer(str, Enum):
     """Memory layer types."""
+
     WORKING = "working"
     EPISODIC = "episodic"
     SEMANTIC = "semantic"
@@ -20,13 +21,26 @@ class MemoryLayer(str, Enum):
 
 class MemoryVisibility(str, Enum):
     """Memory visibility levels for hive memory."""
+
     ORG = "org"
     TEAM = "team"
     PUBLIC = "public"
 
 
+class MemoryEmotion(str, Enum):
+    """Emotional context tags for memories."""
+
+    FRUSTRATED = "frustrated"
+    DELIGHTED = "delighted"
+    CONFUSED = "confused"
+    SATISFIED = "satisfied"
+    SURPRISED = "surprised"
+    NEUTRAL = "neutral"
+
+
 class MemoryCreateRequest(BaseModel):
     """Request body for creating a memory."""
+
     content: str
     user_id: Optional[str] = None
     agent_id: Optional[str] = None
@@ -35,10 +49,21 @@ class MemoryCreateRequest(BaseModel):
     salience: float = Field(default=0.5, ge=0.0, le=1.0)
     org_id: Optional[str] = None
     visibility: Optional[MemoryVisibility] = None
+    profile: Optional[str] = Field(
+        default=None,
+        description="Memory profile name for isolation (e.g., 'work', 'personal', 'project-x')",
+    )
+    emotion: Optional[MemoryEmotion] = Field(
+        default=None, description="Emotional context of the memory"
+    )
+    emotion_intensity: Optional[float] = Field(
+        default=None, ge=0.0, le=1.0, description="How strong the emotion is"
+    )
 
 
 class MemoryResponse(BaseModel):
     """Response body for a single memory."""
+
     id: str
     content: str
     user_id: str
@@ -52,10 +77,14 @@ class MemoryResponse(BaseModel):
     last_accessed: Optional[float] = None
     org_id: Optional[str] = None
     visibility: Optional[str] = None
+    profile: Optional[str] = None
+    emotion: Optional[str] = None
+    emotion_intensity: Optional[float] = None
 
 
 class MemoryListResponse(BaseModel):
     """Response body for listing memories — OpenAI style."""
+
     object: str = "list"
     data: list[MemoryResponse]
     total: int
@@ -63,6 +92,7 @@ class MemoryListResponse(BaseModel):
 
 class MemorySearchRequest(BaseModel):
     """Request body for searching memories."""
+
     query: str
     user_id: Optional[str] = None
     layer: MemoryLayer = MemoryLayer.SEMANTIC
@@ -73,12 +103,14 @@ class MemorySearchRequest(BaseModel):
 
 class MemorySearchResult(BaseModel):
     """A single search result."""
+
     memory: MemoryResponse
     score: float
 
 
 class MemorySearchResponse(BaseModel):
     """Response body for search results."""
+
     object: str = "list"
     data: list[MemorySearchResult]
     total: int

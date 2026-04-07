@@ -37,6 +37,9 @@ def _row_to_response(row: dict) -> MemoryResponse:
         access_count=row.get("access_count", 0),
         created_at=row["created_at"],
         last_accessed=row.get("last_accessed"),
+        profile=row.get("profile"),
+        emotion=row.get("emotion"),
+        emotion_intensity=row.get("emotion_intensity"),
     )
 
 
@@ -52,9 +55,9 @@ def create(conn, req: MemoryCreateRequest) -> MemoryResponse:
     conn.execute(
         """
         INSERT INTO semantic_memory
-            (id, user_id, agent_id, content, metadata, salience, created_at,
-             decay_score, access_count, last_accessed, source_episode)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            (id, user_id, agent_id, content, metadata, salience, created_at, expires_at,
+             decay_score, access_count, last_accessed, source_episode, profile, emotion, emotion_intensity)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         """,
         (
             mem_id,
@@ -64,10 +67,14 @@ def create(conn, req: MemoryCreateRequest) -> MemoryResponse:
             json.dumps(req.metadata),
             req.salience,
             now,
+            None,
             decay_score,
             access_count,
             last_accessed,
             None,
+            req.profile,
+            req.emotion.value if req.emotion else None,
+            req.emotion_intensity,
         ),
     )
 
@@ -81,13 +88,17 @@ def create(conn, req: MemoryCreateRequest) -> MemoryResponse:
 
     conn.commit()
 
-    row = conn.execute("SELECT * FROM semantic_memory WHERE id = ?", (mem_id,)).fetchone()
+    row = conn.execute(
+        "SELECT * FROM semantic_memory WHERE id = ?", (mem_id,)
+    ).fetchone()
     return _row_to_response(dict(row))
 
 
 def get(conn, mem_id: str) -> MemoryResponse | None:
     """Get a semantic memory by ID."""
-    row = conn.execute("SELECT * FROM semantic_memory WHERE id = ?", (mem_id,)).fetchone()
+    row = conn.execute(
+        "SELECT * FROM semantic_memory WHERE id = ?", (mem_id,)
+    ).fetchone()
     if row is None:
         return None
 
@@ -117,12 +128,18 @@ def get(conn, mem_id: str) -> MemoryResponse | None:
     return _row_to_response(row_dict)
 
 
-def list_by_user(conn, user_id: str) -> list[MemoryResponse]:
-    """List all semantic memories for a user."""
-    rows = conn.execute(
-        "SELECT * FROM semantic_memory WHERE user_id = ? ORDER BY created_at DESC",
-        (user_id,),
-    ).fetchall()
+def list_by_user(conn, user_id: str, profile: str = None) -> list[MemoryResponse]:
+    """List semantic memories for a user, optionally filtered by profile."""
+    if profile:
+        rows = conn.execute(
+            "SELECT * FROM semantic_memory WHERE user_id = ? AND profile = ? ORDER BY created_at DESC",
+            (user_id, profile),
+        ).fetchall()
+    else:
+        rows = conn.execute(
+            "SELECT * FROM semantic_memory WHERE user_id = ? ORDER BY created_at DESC",
+            (user_id,),
+        ).fetchall()
     return [_row_to_response(dict(r)) for r in rows]
 
 
@@ -135,7 +152,9 @@ def delete(conn, mem_id: str) -> bool:
     return cursor.rowcount > 0
 
 
-def search(conn, query: str, user_id: str, top_k: int = 10, min_score: float = 0.0) -> MemorySearchResponse:
+def search(
+    conn, query: str, user_id: str, top_k: int = 10, min_score: float = 0.0
+) -> MemorySearchResponse:
     """Vector similarity search for semantic memories.
 
     Embeds the query, uses sqlite-vec KNN to find nearest neighbours,
